@@ -1,0 +1,8 @@
+.admin-tarjeta { position: relative; }
+.admin-volver { display: inline-flex; align-items: center; gap: 6px; color: #627668; font-size: 12px; text-decoration: none; margin-bottom: 22px; }
+.admin-titulo-icono { width: 42px; height: 42px; display: grid; place-items: center; margin: 0 auto 12px; border-radius: 13px; background: #eef3e9; color: #244c3a; }
+.admin-verificado { background: #e4f3e8; color: #27603c; }
+.admin-descripcion { margin: -7px 0 20px; color: #829087; text-align: center; font-size: 12px; line-height: 1.65; }
+.admin-codigo { text-align: center; font-size: 24px !important; letter-spacing: 8px; font-weight: 700; }
+.admin-texto-boton { display: block; margin: 16px auto 0; padding: 5px; background: none; border: 0; color: #627668; text-decoration: underline; font-size: 12px; }
+.admin-token-nota { display: block; margin-top: 14px; color: #829087; text-align: center; font-size: 10px; line-height: 1.5; }
