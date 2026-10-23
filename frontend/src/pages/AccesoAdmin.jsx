@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { ArrowLeft, LockKeyhole, MailCheck, ShieldCheck, Sprout } from "lucide-react";
+import { ArrowLeft, LockKeyhole, MailCheck, Sprout } from "lucide-react";
 import { solicitarCodigoAdminPorCorreo, verificarCodigoAdminPorCorreo } from "../services/admin";
 import "./Acceso.css";
+import PanelAdmin from "./PanelAdmin";
 import "./AccesoAdmin.css";
 
 function textoError(error) {
@@ -62,6 +63,10 @@ export default function AccesoAdmin() {
     window.location.href = "/";
   }
 
+  if (paso === "autorizado") {
+    return <PanelAdmin token={tokenAdmin} email={email.trim()} onSalir={salir} />;
+  }
+
   return (
     <main className="acceso">
       <section className="acceso-tarjeta admin-tarjeta">
@@ -101,14 +106,6 @@ export default function AccesoAdmin() {
           <button className="admin-texto-boton" type="button" onClick={salir}>Cancelar</button>
         </>}
 
-        {paso === "autorizado" && <>
-          <div className="admin-titulo-icono admin-verificado"><ShieldCheck size={24} /></div>
-          <h2>Acceso verificado</h2>
-          <p className="admin-descripcion">El código fue aceptado. Tu sesión administrativa temporal está activa en esta pestaña.</p>
-          <p className="acceso-mensaje acceso-aviso">Los módulos de administración se conectarán aquí en la siguiente fase. La API emitió un token administrativo con vencimiento.</p>
-          <button className="primary-button acceso-boton" type="button" onClick={salir}>Salir</button>
-          <span className="admin-token-nota">Token en memoria: {tokenAdmin ? "activo" : "no disponible"}. Al recargar la página deberás verificarte de nuevo.</span>
-        </>}
       </section>
     </main>
   );
