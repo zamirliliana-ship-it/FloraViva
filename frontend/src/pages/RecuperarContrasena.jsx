@@ -1,137 +1,276 @@
 
 import { useEffect, useState } from "react";
-import { Sprout } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import { useAuth } from "../context/AuthContext";
-import "./Acceso.css";
 
 export default function RecuperarContrasena() {
-  const { actualizarContrasena } = useAuth();
-  const [password, setPassword] = useState("");
-  const [confirmacion, setConfirmacion] = useState("");
-  const [enlaceValido, setEnlaceValido] = useState(false);
-  const [completado, setCompletado] = useState(false);
-  const [enviando, setEnviando] = useState(false);
-  const [error, setError] = useState("");
-  const [aviso, setAviso] = useState("");
+  const navigate = useNavigate();
+
+  const [nuevaContrasena, setNuevaContrasena] = useState("");
+  const [confirmarContrasena, setConfirmarContrasena] = useState("");
+  const [cargando, setCargando] = useState(true);
+  const [actualizando, setActualizando] = useState(false);
+  const [sesionValida, setSesionValida] = useState(false);
+  const [mensaje, setMensaje] = useState("");
+  const [tipoMensaje, setTipoMensaje] = useState("info");
 
   useEffect(() => {
-    const { data: listener } = supabase.auth.onAuthStateChange((evento, session) => {
-      if (evento === "PASSWORD_RECOVERY" && session) {
-        setEnlaceValido(true);
-      }
-    });
+    let activo = true;
 
-    if (window.location.hash.includes("type=recovery")) {
-      setEnlaceValido(true);
+    async function verificarSesionRecuperacion() {
+      try {
+        // Supabase puede enviar el token en el hash de la URL
+        // o utilizar PKCE mediante un parámetro code.
+        const url = new URL(window.location.href);
+        const hash = new URLSearchParams(
+          url.hash.replace(/^#/, "")
+        );
+
+        const errorUrl =
+          hash.get("error_description") ||
+          url.searchParams.get("error_description");
+
+        if (errorUrl) {
+          throw new Error(
+            "El enlace de recuperación no es válido o ha expirado."
+          );
+        }
+
+        const code = url.searchParams.get("code");
+
+        if (code) {
+          const { error } =
+            await supabase.auth.exchangeCodeForSession(code);
+
+          if (error) {
+            throw error;
+          }
+
+          // Evita procesar el mismo código otra vez.
+          window.history.replaceState(
+            {},
+            document.title,
+            url.pathname
+          );
+        }
+
+        const { data, error } =
+          await supabase.auth.getSession();
+
+        if (error) {
+          throw error;
+        }
+
+        if (activo) {
+          setSesionValida(Boolean(data.session));
+        }
+      } catch (error) {
+        if (activo) {
+          setSesionValida(false);
+          setMensaje(
+            error.message ||
+              "No se pudo validar el enlace de recuperación."
+          );
+          setTipoMensaje("error");
+        }
+      } finally {
+        if (activo) {
+          setCargando(false);
+        }
+      }
     }
 
-    return () => listener.subscription.unsubscribe();
+    verificarSesionRecuperacion();
+
+    // También escucha cuando Supabase establece la sesión
+    // de recuperación mediante el enlace enviado al correo.
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(
+      (evento, sesion) => {
+        if (!activo) return;
+
+        if (
+          evento === "PASSWORD_RECOVERY" ||
+          evento === "SIGNED_IN"
+        ) {
+          setSesionValida(Boolean(sesion));
+        }
+      }
+    );
+
+    return () => {
+      activo = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
-  async function guardar(evento) {
+  async function cambiarContrasena(evento) {
     evento.preventDefault();
-    setError("");
-    setAviso("");
 
-    if (password.length < 6) {
-      setError("La contraseña debe tener al menos 6 caracteres.");
+    setMensaje("");
+    setTipoMensaje("info");
+
+    if (nuevaContrasena.length < 8) {
+      setMensaje(
+        "La contraseña debe tener al menos 8 caracteres."
+      );
+      setTipoMensaje("error");
       return;
     }
 
-    if (password !== confirmacion) {
-      setError("Las contraseñas no coinciden.");
+    if (nuevaContrasena !== confirmarContrasena) {
+      setMensaje("Las contraseñas no coinciden.");
+      setTipoMensaje("error");
       return;
     }
 
-    setEnviando(true);
+    setActualizando(true);
+
     try {
-      await actualizarContrasena(password);
+      const { error } = await supabase.auth.updateUser({
+        password: nuevaContrasena,
+      });
 
-      const { error: errorSalida } = await supabase.auth.signOut({ scope: "local" });
-      if (errorSalida) throw errorSalida;
-
-      setCompletado(true);
-      setAviso("Tu contraseña se actualizó correctamente. Ya puedes iniciar sesión.");
-      window.history.replaceState({}, "", "/recuperar");
-    } catch (fallo) {
-      const texto = (fallo?.message ?? "").toLowerCase();
-
-      if (texto.includes("session") || texto.includes("token") || texto.includes("expired")) {
-        setError("El enlace venció o ya fue utilizado. Solicita uno nuevo desde Iniciar sesión.");
-      } else {
-        setError(fallo?.message || "No se pudo actualizar la contraseña. Solicita un enlace nuevo.");
+      if (error) {
+        throw error;
       }
+
+      setMensaje(
+        "¡Contraseña actualizada correctamente! Ya puedes iniciar sesión."
+      );
+      setTipoMensaje("success");
+
+      setNuevaContrasena("");
+      setConfirmarContrasena("");
+
+      // Cierra la sesión de recuperación para evitar
+      // que se vuelva a utilizar el mismo enlace.
+      await supabase.auth.signOut({ scope: "local" });
+
+      setSesionValida(false);
+    } catch (error) {
+      setMensaje(
+        error.message ||
+          "No se pudo actualizar la contraseña. Solicita un nuevo enlace."
+      );
+      setTipoMensaje("error");
     } finally {
-      setEnviando(false);
+      setActualizando(false);
     }
   }
 
+  if (cargando) {
+    return (
+      <div className="recuperar-contenedor">
+        <div className="recuperar-tarjeta">
+          <h2>FloraViva</h2>
+          <p>Verificando enlace de recuperación...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <main className="acceso">
-      <section className="acceso-tarjeta">
-        <div className="acceso-marca">
-          <div className="acceso-icono"><Sprout size={27} /></div>
-          <h1>FloraViva</h1>
-          <p>Cultiva, identifica y descubre la naturaleza</p>
+    <div className="recuperar-contenedor">
+      <div className="recuperar-tarjeta">
+        <div className="recuperar-logo">
+          <span>🌱</span>
         </div>
 
-        <h2>{completado ? "Contraseña actualizada" : "Crear nueva contraseña"}</h2>
+        <h1>FloraViva</h1>
+        <p className="recuperar-subtitulo">
+          Cultiva, identifica y descubre la naturaleza
+        </p>
 
-        {completado ? (
-          <>
-            <p className="acceso-mensaje acceso-aviso" role="status">{aviso}</p>
-            <p className="acceso-cambio"><a href="/login">Volver a iniciar sesión</a></p>
-          </>
-        ) : enlaceValido ? (
-          <form onSubmit={guardar} className="acceso-formulario">
-            <p className="acceso-descripcion">
-              Elige una contraseña nueva para tu cuenta de FloraViva.
-            </p>
+        <h2>Crear nueva contraseña</h2>
 
-            <label>
-              Nueva contraseña
+        {mensaje && (
+          <div
+            className={`recuperar-mensaje ${tipoMensaje}`}
+            role="alert"
+          >
+            {mensaje}
+          </div>
+        )}
+
+        {sesionValida ? (
+          <form onSubmit={cambiarContrasena}>
+            <div className="recuperar-campo">
+              <label htmlFor="nuevaContrasena">
+                Nueva contraseña
+              </label>
+
               <input
+                id="nuevaContrasena"
                 type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                value={nuevaContrasena}
+                onChange={(e) =>
+                  setNuevaContrasena(e.target.value)
+                }
+                placeholder="Mínimo 8 caracteres"
+                minLength={8}
                 autoComplete="new-password"
-                placeholder="Mínimo 6 caracteres"
-                minLength={6}
                 required
               />
-            </label>
+            </div>
 
-            <label>
-              Confirmar contraseña
+            <div className="recuperar-campo">
+              <label htmlFor="confirmarContrasena">
+                Confirmar contraseña
+              </label>
+
               <input
+                id="confirmarContrasena"
                 type="password"
-                value={confirmacion}
-                onChange={(e) => setConfirmacion(e.target.value)}
+                value={confirmarContrasena}
+                onChange={(e) =>
+                  setConfirmarContrasena(e.target.value)
+                }
+                placeholder="Repite tu contraseña"
+                minLength={8}
                 autoComplete="new-password"
-                placeholder="Repite la contraseña"
-                minLength={6}
                 required
               />
-            </label>
+            </div>
 
-            {error && <p className="acceso-mensaje acceso-error" role="alert">{error}</p>}
-
-            <button className="primary-button acceso-boton" type="submit" disabled={enviando}>
-              {enviando ? "Guardando…" : "Guardar nueva contraseña"}
+            <button
+              type="submit"
+              disabled={actualizando}
+              className="recuperar-boton"
+            >
+              {actualizando
+                ? "Actualizando..."
+                : "Cambiar contraseña"}
             </button>
           </form>
         ) : (
-          <>
-            <p className="acceso-mensaje acceso-aviso" role="status">
-              Abre el enlace de recuperación más reciente que enviamos a tu correo. Si no tienes uno, solicita otro desde el inicio de sesión.
-            </p>
-            <p className="acceso-cambio"><a href="/login">Volver a iniciar sesión</a></p>
-          </>
+          <div>
+            {!mensaje && (
+              <div className="recuperar-mensaje info">
+                Abre el enlace de recuperación más reciente
+                que enviamos a tu correo.
+              </div>
+            )}
+
+            <button
+              type="button"
+              className="recuperar-boton"
+              onClick={() => navigate("/login")}
+            >
+              Volver a iniciar sesión
+            </button>
+          </div>
         )}
 
-        <p className="acceso-admin-enlace"><a href="/">Volver a la página de inicio</a></p>
-      </section>
-    </main>
+        <a href="/login" className="recuperar-enlace">
+          Volver a iniciar sesión
+        </a>
+
+        <a href="/" className="recuperar-enlace">
+          Volver a la página de inicio
+        </a>
+      </div>
+    </div>
   );
 }
