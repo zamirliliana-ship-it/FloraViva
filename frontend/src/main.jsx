@@ -6,6 +6,7 @@ import Inicio from "./pages/Inicio.jsx";
 import Acceso from "./pages/Acceso.jsx";
 import AccesoAdmin from "./pages/AccesoAdmin.jsx";
 import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
+import Acceso from "./pages/Acceso.jsx";
 
 function normalizarRuta(pathname) {
   if (!pathname || pathname === "/") return "/";
