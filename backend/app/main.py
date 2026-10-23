@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from postgrest.exceptions import APIError
 
 from app.config import obtener_configuracion
-from app.routers import admin, autenticacion, cosechas, cultivos, estadisticas, plantas, escanner
+from app.routers import admin, admin_panel, autenticacion, cosechas, cultivos, estadisticas, plantas, escanner
 
 # Se lee al iniciar: si falta algo en el .env, el servidor falla enseguida
 # con un mensaje claro en lugar de fallar en la primera petición.
@@ -39,6 +39,7 @@ app.include_router(plantas.router)
 app.include_router(cosechas.router)
 app.include_router(estadisticas.router)
 app.include_router(admin.router)
+app.include_router(admin_panel.router)
 app.include_router(autenticacion.router)
 app.include_router(escanner.router)
 
