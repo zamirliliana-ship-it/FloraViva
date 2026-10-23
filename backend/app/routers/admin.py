@@ -26,7 +26,7 @@ class CodigoEntrada(BaseModel):
 
 def _configuracion_admin():
     cfg = obtener_configuracion()
-    if (not cfg.floraviva_admin_email or not cfg.admin_otp_secret or not cfg.admin_session_secret
+    if (not _correos_admin(cfg) or not cfg.admin_otp_secret or not cfg.admin_session_secret
             or not cfg.supabase_secret_key):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -35,11 +35,23 @@ def _configuracion_admin():
     return cfg
 
 
+def _correos_admin(cfg) -> list[str]:
+    """Correos autorizados: FLORAVIVA_ADMIN_EMAIL admite varios separados por coma."""
+    bruto = (cfg.floraviva_admin_email or "").replace(";", ",")
+    return [c.strip().lower() for c in bruto.split(",") if c.strip()]
+
+
+def _es_admin(email: str | None, cfg) -> bool:
+    """True si el correo está en la lista de administradores (comparación segura)."""
+    if not email:
+        return False
+    email = email.strip().lower()
+    return any(hmac.compare_digest(email, permitido) for permitido in _correos_admin(cfg))
+
+
 def _comprobar_admin(usuario: UsuarioActual) -> None:
     cfg = _configuracion_admin()
-    if not usuario.email or not hmac.compare_digest(
-        usuario.email.strip().lower(), cfg.floraviva_admin_email.strip().lower()
-    ):
+    if not _es_admin(usuario.email, cfg):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cuenta no autorizada como administradora.")
 
 
@@ -67,8 +79,8 @@ def verificar_token_admin(token: str) -> dict:
         raise HTTPException(status_code=401, detail="Sesión administrativa inválida o vencida.") from exc
     if claims.get("role") != "admin" or not claims.get("sub"):
         raise HTTPException(status_code=403, detail="Se requieren permisos de administrador.")
-    if (claims.get("email") or "").strip().lower() != cfg.floraviva_admin_email.strip().lower():
-        raise HTTPException(status_code=403, detail="La sesión no pertenece al administrador autorizado.")
+    if not _es_admin(claims.get("email"), cfg):
+        raise HTTPException(status_code=403, detail="La sesión no pertenece a un administrador autorizado.")
     return claims
 
 
