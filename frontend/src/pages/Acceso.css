@@ -18,6 +18,18 @@
 .acceso-cambio { text-align: center; font-size: 13px; color: #829087; margin: 21px 0 0; }
 .acceso-cambio button { border: 0; background: none; padding: 0; color: #244c3a; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
 @media (max-width: 480px) { .acceso { padding: 16px; } .acceso-tarjeta { padding: 28px 21px 24px; } }
+.acceso-descripcion {
+  margin: 0;
+  color: #64776a;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.acceso-cambio a {
+  color: #244c3a;
+  font-weight: 700;
+  text-decoration: underline;
+}
 
 
 .acceso-admin-enlace { text-align: center; margin: 18px 0 0; font-size: 12px; }
