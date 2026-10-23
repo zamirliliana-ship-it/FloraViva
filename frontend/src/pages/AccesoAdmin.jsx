@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { ArrowLeft, LockKeyhole, MailCheck, ShieldCheck, Sprout } from "lucide-react";
-import { useAuth } from "../context/AuthContext";
-import { solicitarCodigoAdmin, verificarCodigoAdmin } from "../services/admin";
+import { solicitarCodigoAdminPorCorreo, verificarCodigoAdminPorCorreo } from "../services/admin";
 import "./Acceso.css";
 import "./AccesoAdmin.css";
 
@@ -17,9 +16,7 @@ function textoError(error) {
 }
 
 export default function AccesoAdmin() {
-  const { iniciarSesion, cerrarSesion } = useAuth();
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [codigo, setCodigo] = useState("");
   const [paso, setPaso] = useState("credenciales");
   const [tokenAdmin, setTokenAdmin] = useState("");
@@ -27,19 +24,16 @@ export default function AccesoAdmin() {
   const [error, setError] = useState("");
   const [aviso, setAviso] = useState("");
 
-  async function enviarCredenciales(evento) {
+  async function enviarCorreo(evento) {
     evento.preventDefault();
     setError("");
     setAviso("");
     setEnviando(true);
     try {
-      await iniciarSesion(email.trim(), password);
-      await solicitarCodigoAdmin();
+      await solicitarCodigoAdminPorCorreo(email.trim());
       setPaso("codigo");
-      setAviso("Enviamos un código de seguridad a tu correo autorizado. Revisa también la carpeta de spam.");
+      setAviso("Si el correo está autorizado, enviamos un código de seguridad. Revisa también la carpeta de spam.");
     } catch (fallo) {
-      // Si no se completa el primer paso, no dejamos una sesión parcial abierta.
-      try { await cerrarSesion(); } catch { /* El error principal se muestra abajo. */ }
       setError(textoError(fallo));
     } finally {
       setEnviando(false);
@@ -52,7 +46,7 @@ export default function AccesoAdmin() {
     setAviso("");
     setEnviando(true);
     try {
-      const resultado = await verificarCodigoAdmin(codigo.trim());
+      const resultado = await verificarCodigoAdminPorCorreo(email.trim(), codigo.trim());
       setTokenAdmin(resultado.token_admin);
       setPaso("autorizado");
       setAviso("Verificación completada correctamente.");
@@ -63,9 +57,9 @@ export default function AccesoAdmin() {
     }
   }
 
-  async function salir() {
+  function salir() {
     setTokenAdmin("");
-    try { await cerrarSesion(); } finally { window.location.href = "/"; }
+    window.location.href = "/";
   }
 
   return (
@@ -81,17 +75,14 @@ export default function AccesoAdmin() {
         {paso === "credenciales" && <>
           <div className="admin-titulo-icono"><LockKeyhole size={20} /></div>
           <h2>Acceso de administrador</h2>
-          <p className="admin-descripcion">Primero verifica tu contraseña. Después te enviaremos un código de un solo uso al correo autorizado.</p>
-          <form onSubmit={enviarCredenciales} className="acceso-formulario">
+          <p className="admin-descripcion">Escribe tu correo de administrador y te enviaremos un código de un solo uso para entrar.</p>
+          <form onSubmit={enviarCorreo} className="acceso-formulario">
             <label>Correo autorizado
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" placeholder="Correo de administrador" required />
             </label>
-            <label>Contraseña
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" minLength={6} required />
-            </label>
             {error && <p className="acceso-mensaje acceso-error" role="alert">{error}</p>}
             {aviso && <p className="acceso-mensaje acceso-aviso" role="status">{aviso}</p>}
-            <button className="primary-button acceso-boton" type="submit" disabled={enviando}>{enviando ? "Verificando…" : "Verificar contraseña"}</button>
+            <button className="primary-button acceso-boton" type="submit" disabled={enviando}>{enviando ? "Enviando…" : "Enviar código"}</button>
           </form>
         </>}
 
@@ -107,15 +98,15 @@ export default function AccesoAdmin() {
             {aviso && <p className="acceso-mensaje acceso-aviso" role="status">{aviso}</p>}
             <button className="primary-button acceso-boton" type="submit" disabled={enviando || codigo.length !== 6}>{enviando ? "Comprobando…" : "Confirmar código"}</button>
           </form>
-          <button className="admin-texto-boton" type="button" onClick={async () => { await salir(); }}>Cancelar y cerrar sesión</button>
+          <button className="admin-texto-boton" type="button" onClick={salir}>Cancelar</button>
         </>}
 
         {paso === "autorizado" && <>
           <div className="admin-titulo-icono admin-verificado"><ShieldCheck size={24} /></div>
           <h2>Acceso verificado</h2>
-          <p className="admin-descripcion">La contraseña y el código fueron aceptados. Tu sesión administrativa temporal está activa en esta pestaña.</p>
+          <p className="admin-descripcion">El código fue aceptado. Tu sesión administrativa temporal está activa en esta pestaña.</p>
           <p className="acceso-mensaje acceso-aviso">Los módulos de administración se conectarán aquí en la siguiente fase. La API emitió un token administrativo con vencimiento.</p>
-          <button className="primary-button acceso-boton" type="button" onClick={salir}>Cerrar sesión</button>
+          <button className="primary-button acceso-boton" type="button" onClick={salir}>Salir</button>
           <span className="admin-token-nota">Token en memoria: {tokenAdmin ? "activo" : "no disponible"}. Al recargar la página deberás verificarte de nuevo.</span>
         </>}
       </section>
