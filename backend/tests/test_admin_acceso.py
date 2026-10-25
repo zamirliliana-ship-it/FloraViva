@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.routers import admin as admin_mod
 
-ADMIN = "admin@floraviva.test"
+ADMIN = "admin@example.com"
 
 
 class FakeQuery:
