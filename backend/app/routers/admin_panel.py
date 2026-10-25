@@ -1,4 +1,3 @@
-
 """Panel administrativo: métricas agregadas y moderación del foro.
 
 Todas las rutas exigen el token administrativo temporal.
@@ -7,7 +6,7 @@ El panel muestra métricas agregadas y no expone datos personales individuales.
 from __future__ import annotations
 
 from collections import Counter
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -18,6 +17,11 @@ from app.routers.admin import verificar_token_admin
 
 router = APIRouter(prefix="/api/admin/panel", tags=["Panel administrativo"])
 
+# Los días de las gráficas se cuentan en hora de Colombia (UTC-5, sin horario
+# de verano). Con UTC, lo registrado después de las 7 p. m. caía en el día
+# siguiente.
+ZONA_PANEL = timezone(timedelta(hours=-5))
+
 TABLAS_CONTEO = {
     "cultivos": "cultivos",
     "plantas": "plantas",
@@ -27,6 +31,10 @@ TABLAS_CONTEO = {
     "escaneos": "identificaciones",
     "recordatorios": "recordatorios",
 }
+
+
+def _ahora() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def admin_requerido(
@@ -63,6 +71,30 @@ def _a_fecha(valor) -> datetime | None:
         return None
 
 
+def _dia_local(valor) -> str | None:
+    """Día (AAAA-MM-DD) en hora de Colombia de una marca de tiempo."""
+    fecha = _a_fecha(valor)
+    if fecha is None:
+        return None
+    return fecha.astimezone(ZONA_PANEL).date().isoformat()
+
+
+def _ventana_utc(fechas: list[str]) -> tuple[str, str]:
+    """Inicio y fin (en UTC) que cubren los días locales indicados."""
+    inicio = datetime.combine(
+        date.fromisoformat(fechas[0]), time.min, tzinfo=ZONA_PANEL
+    )
+    fin = datetime.combine(
+        date.fromisoformat(fechas[-1]) + timedelta(days=1),
+        time.min,
+        tzinfo=ZONA_PANEL,
+    )
+    return (
+        inicio.astimezone(timezone.utc).isoformat(),
+        fin.astimezone(timezone.utc).isoformat(),
+    )
+
+
 def _usuarios_resumen(db: Client, fechas: list[str]) -> dict:
     total = confirmados = 0
     nuevos_por_dia: Counter = Counter()
@@ -81,11 +113,9 @@ def _usuarios_resumen(db: Client, fechas: list[str]) -> dict:
             if getattr(usuario, "email_confirmed_at", None):
                 confirmados += 1
 
-            creado = _a_fecha(getattr(usuario, "created_at", None))
-            if creado:
-                dia = creado.astimezone(timezone.utc).date().isoformat()
-                if dia in fechas:
-                    nuevos_por_dia[dia] += 1
+            dia = _dia_local(getattr(usuario, "created_at", None))
+            if dia in fechas:
+                nuevos_por_dia[dia] += 1
 
         if len(usuarios) < 200:
             break
@@ -117,6 +147,7 @@ def _filas(
         lote = (
             db.table(tabla)
             .select(columnas)
+            .order("id")
             .range(inicio, inicio + 999)
             .execute()
             .data
@@ -140,11 +171,7 @@ def _serie_diaria_tabla(
 
     Devuelve None si la tabla o sus columnas de fecha no son compatibles.
     """
-    inicio = f"{fechas[0]}T00:00:00+00:00"
-    dia_siguiente = (
-        date.fromisoformat(fechas[-1]) + timedelta(days=1)
-    ).isoformat()
-    fin = f"{dia_siguiente}T00:00:00+00:00"
+    inicio, fin = _ventana_utc(fechas)
 
     for columna in columnas_fecha:
         conteos: Counter = Counter()
@@ -157,6 +184,8 @@ def _serie_diaria_tabla(
                     .select(columna)
                     .gte(columna, inicio)
                     .lt(columna, fin)
+                    .order(columna)
+                    .order("id")
                     .range(desplazamiento, desplazamiento + 999)
                     .execute()
                     .data
@@ -164,11 +193,9 @@ def _serie_diaria_tabla(
                 )
 
                 for fila in lote:
-                    valor = fila.get(columna)
-                    if valor:
-                        dia = str(valor)[:10]
-                        if dia in fechas:
-                            conteos[dia] += 1
+                    dia = _dia_local(fila.get(columna))
+                    if dia in fechas:
+                        conteos[dia] += 1
 
                 if len(lote) < 1000:
                     break
@@ -187,19 +214,32 @@ def _serie_diaria_tabla(
     return None
 
 
+def _sumar_series(fechas: list[str], *series: list[dict] | None) -> list[dict] | None:
+    """Suma series diarias; ignora las que no están disponibles."""
+    disponibles = [serie for serie in series if serie is not None]
+    if not disponibles:
+        return None
+
+    return [
+        {
+            "fecha": fecha,
+            "total": sum(serie[indice]["total"] for serie in disponibles),
+        }
+        for indice, fecha in enumerate(fechas)
+    ]
+
+
 @router.get("/metricas")
 def metricas(_: dict = Depends(admin_requerido)):
     """Cifras generales y series diarias de los últimos 14 días."""
     db = cliente_admin()
-    hoy = datetime.now(timezone.utc).date()
+    hoy = _ahora().astimezone(ZONA_PANEL).date()
     fechas = [
         (hoy - timedelta(days=d)).isoformat()
         for d in range(13, -1, -1)
     ]
 
-    resultado: dict = {
-        "generado_en": datetime.now(timezone.utc).isoformat()
-    }
+    resultado: dict = {"generado_en": _ahora().isoformat()}
 
     try:
         resultado["usuarios"] = _usuarios_resumen(db, fechas)
@@ -250,11 +290,16 @@ def metricas(_: dict = Depends(admin_requerido)):
     except Exception:
         resultado["foro_por_categoria"] = []
 
-    serie_cosechas = _serie_diaria_tabla(
-        db,
-        "cosechas",
+    # La app guarda las cosechas en "produccion_cultivo" (App.jsx). La tabla
+    # "cosechas" (API /api/cosechas) también se suma por si se usa.
+    serie_cosechas = _sumar_series(
         fechas,
-        ["creado_en", "created_at", "fecha_cosecha"],
+        _serie_diaria_tabla(
+            db, "produccion_cultivo", fechas, ["created_at", "creado_en"]
+        ),
+        _serie_diaria_tabla(
+            db, "cosechas", fechas, ["creado_en", "created_at"]
+        ),
     )
 
     serie_escaneos = _serie_diaria_tabla(
